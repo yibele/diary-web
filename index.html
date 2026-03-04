@@ -3,24 +3,15 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>我的日记本</title>
-    <link rel="preconnect" href="https://fonts.googleapis.com" />
-    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
-    <link
-      href="https://fonts.googleapis.com/css2?family=ZCOOL+XiaoWei&family=Outfit:wght@400;600;700&display=swap"
-      rel="stylesheet"
-    />
+    <title>智能日记记录</title>
     <link rel="stylesheet" href="styles.css" />
   </head>
   <body>
-    <div class="bg-glow bg-glow-a"></div>
-    <div class="bg-glow bg-glow-b"></div>
-
     <main class="app">
       <header class="hero">
-        <p class="tag">Diary, Expense, Weight</p>
-        <h1>我的生活记录本</h1>
-        <p class="desc">先登录，再开始记录你的生活。</p>
+        <p class="tag">Smart Diary</p>
+        <h1>写一段日记，自动记录花费和体重</h1>
+        <p class="desc">你只要写内容，系统会自动提取并记账、记体重，再生成图表。</p>
       </header>
 
       <section class="auth-wrap" id="auth-card">
@@ -77,154 +68,88 @@
       <div id="app-content" class="hidden">
         <section class="stats" id="stats"></section>
 
-        <nav class="page-nav" aria-label="主页面切换">
-          <button class="nav-btn active" type="button" data-page="daily">日记</button>
-          <button class="nav-btn" type="button" data-page="expense">花费</button>
-          <button class="nav-btn" type="button" data-page="weight">体重</button>
-        </nav>
+        <section class="card">
+          <div class="section-head">
+            <h2>写今天的日记</h2>
+            <p>提交后自动提取花费和体重并保存。</p>
+          </div>
+          <form id="diary-form" class="form">
+            <label>
+              日期
+              <input type="date" name="date" required />
+            </label>
+            <label>
+              标题（可选）
+              <input type="text" name="title" maxlength="60" placeholder="比如：普通的一天" />
+            </label>
+            <label>
+              正文
+              <textarea name="content" rows="8" placeholder="今天早饭 12 元，中午 28 元，体重 63.4kg..." required></textarea>
+            </label>
+            <button type="submit" id="save-diary-btn">保存并自动提取</button>
+          </form>
+          <div id="extract-result" class="result-box">还没有提取结果。</div>
+        </section>
 
-        <section class="pages">
-          <article class="card page active" data-page="daily">
-            <div class="section-head">
-              <h2>日记中心</h2>
-              <p>写和看分开，你可以像翻书一样看过去的记录。</p>
-            </div>
+        <section class="card">
+          <div class="section-head">
+            <h2>数据看板</h2>
+            <p>按月查看花费和体重变化。</p>
+          </div>
+          <div class="month-row">
+            <label>
+              查看月份
+              <input type="month" id="dashboard-month" />
+            </label>
+          </div>
 
-            <nav class="sub-nav" aria-label="日记功能切换">
-              <button class="sub-btn active" type="button" data-diary-mode="write">写日记</button>
-              <button class="sub-btn" type="button" data-diary-mode="view">看日记本</button>
-            </nav>
-
-            <section class="diary-mode active" data-diary-mode="write">
-              <form id="daily-form" class="form">
-                <label>
-                  日期
-                  <input type="date" name="date" required />
-                </label>
-                <label>
-                  标题
-                  <input type="text" name="title" maxlength="60" placeholder="今天的标题" required />
-                </label>
-                <label>
-                  正文
-                  <textarea name="content" rows="8" placeholder="写下今天发生的事和感受..." required></textarea>
-                </label>
-                <button type="submit">保存日记</button>
-              </form>
-
-              <section class="card-inset ai-box">
-                <h3 class="panel-title">AI 助手</h3>
-                <p class="panel-sub">可以帮你润色和总结当前这篇日记。</p>
-                <div class="ai-actions">
-                  <button type="button" id="ai-polish-btn" class="entry-btn">AI 润色</button>
-                  <button type="button" id="ai-summary-btn" class="entry-btn">AI 总结</button>
-                  <button type="button" id="ai-apply-btn" class="nav-btn hidden">替换正文</button>
-                </div>
-                <div id="ai-output" class="ai-output">先写一点内容，再点上面的 AI 按钮。</div>
-              </section>
-            </section>
-
-            <section class="diary-mode" data-diary-mode="view">
-              <div class="diary-book-layout">
-                <div>
-                  <h3 class="panel-title">我的日记本</h3>
-                  <p class="panel-sub">按月份整理，点开一本就能看。</p>
-                  <ul id="notebook-list" class="notebook-list"></ul>
-                </div>
-
-                <div class="reader card-inset">
-                  <div id="reader-empty" class="reader-empty">先在左边选一本日记本。</div>
-                  <div id="reader-body" class="reader-body hidden">
-                    <div class="reader-columns">
-                      <div>
-                        <h4 class="panel-title">目录</h4>
-                        <ul id="notebook-entry-list" class="entry-menu"></ul>
-                      </div>
-                      <article class="page-paper" id="diary-reader-content"></article>
-                    </div>
-                  </div>
-                </div>
+          <div class="dashboard-grid">
+            <div class="card-inset">
+              <h3 class="panel-title">本月花费记录</h3>
+              <div class="table-wrap">
+                <table>
+                  <thead>
+                    <tr>
+                      <th>日期</th>
+                      <th>项目</th>
+                      <th>金额（元）</th>
+                    </tr>
+                  </thead>
+                  <tbody id="expense-table-body"></tbody>
+                </table>
               </div>
-            </section>
-          </article>
-
-          <article class="card page" data-page="expense">
-            <div class="section-head">
-              <h2>花费记录</h2>
-              <p>记录每一笔支出，随时回看。</p>
-            </div>
-            <form id="expense-form" class="form">
-              <label>
-                日期
-                <input type="date" name="date" required />
-              </label>
-              <label>
-                项目
-                <input type="text" name="item" placeholder="比如：午饭" required />
-              </label>
-              <label>
-                金额（元）
-                <input type="number" name="amount" min="0" step="0.01" placeholder="0.00" required />
-              </label>
-              <button type="submit">保存花费</button>
-            </form>
-            <ul id="expense-list" class="entry-list"></ul>
-          </article>
-
-          <article class="card page" data-page="weight">
-            <div class="section-head">
-              <h2>体重管理</h2>
-              <p>按月看曲线和表格，变化一目了然。</p>
             </div>
 
-            <form id="weight-form" class="form compact-form">
-              <label>
-                日期
-                <input type="date" name="date" required />
-              </label>
-              <label>
-                体重（kg）
-                <input type="number" name="weight" min="0" step="0.1" placeholder="60.0" required />
-              </label>
-              <button type="submit">保存体重</button>
-            </form>
-
-            <div class="weight-controls">
-              <label>
-                查看月份
-                <input type="month" id="weight-month" />
-              </label>
-            </div>
-
-            <section class="weight-layout">
-              <div class="card-inset">
-                <h3 class="panel-title">月曲线图</h3>
-                <div id="weight-chart" class="chart-box"></div>
+            <div class="card-inset">
+              <h3 class="panel-title">本月体重曲线</h3>
+              <div id="weight-chart" class="chart-box"></div>
+              <div class="table-wrap">
+                <table>
+                  <thead>
+                    <tr>
+                      <th>日期</th>
+                      <th>体重（kg）</th>
+                    </tr>
+                  </thead>
+                  <tbody id="weight-table-body"></tbody>
+                </table>
               </div>
+            </div>
+          </div>
+        </section>
 
-              <div class="card-inset">
-                <h3 class="panel-title">月记录表</h3>
-                <div class="table-wrap">
-                  <table>
-                    <thead>
-                      <tr>
-                        <th>日期</th>
-                        <th>体重（kg）</th>
-                        <th>操作</th>
-                      </tr>
-                    </thead>
-                    <tbody id="weight-table-body"></tbody>
-                  </table>
-                </div>
-              </div>
-            </section>
-          </article>
+        <section class="card">
+          <div class="section-head">
+            <h2>日记记录</h2>
+            <p>每条日记都附带自动提取结果。</p>
+          </div>
+          <ul id="diary-list" class="entry-list"></ul>
         </section>
       </div>
     </main>
 
     <template id="empty-template">
-      <li class="empty">还没有记录，先写一条吧。</li>
+      <li class="empty">还没有记录，先写第一条吧。</li>
     </template>
 
     <script src="script.js"></script>

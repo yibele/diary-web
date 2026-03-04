@@ -8,11 +8,7 @@ let state = emptyState();
 let currentUser = null;
 
 const ui = {
-  selectedPage: "daily",
-  diaryMode: "write",
-  selectedNotebookMonth: "",
-  selectedDiaryId: "",
-  selectedWeightMonth: currentMonthString(),
+  selectedMonth: currentMonthString(),
 };
 
 const authCard = document.getElementById("auth-card");
@@ -27,64 +23,35 @@ const goRegisterBtn = document.getElementById("go-register-btn");
 const goLoginBtn = document.getElementById("go-login-btn");
 const loginPanel = document.getElementById("auth-login-panel");
 const registerPanel = document.getElementById("auth-register-panel");
-const aiPolishBtn = document.getElementById("ai-polish-btn");
-const aiSummaryBtn = document.getElementById("ai-summary-btn");
-const aiApplyBtn = document.getElementById("ai-apply-btn");
-const aiOutput = document.getElementById("ai-output");
 
-const dailyForm = document.getElementById("daily-form");
-const expenseForm = document.getElementById("expense-form");
-const weightForm = document.getElementById("weight-form");
-
-const expenseList = document.getElementById("expense-list");
+const diaryForm = document.getElementById("diary-form");
+const saveDiaryBtn = document.getElementById("save-diary-btn");
+const extractResult = document.getElementById("extract-result");
+const dashboardMonth = document.getElementById("dashboard-month");
 const stats = document.getElementById("stats");
-const emptyTemplate = document.getElementById("empty-template");
-
-const navButtons = document.querySelectorAll(".nav-btn");
-const pages = document.querySelectorAll(".page");
-
-const diaryModeButtons = document.querySelectorAll(".sub-btn");
-const diaryModes = document.querySelectorAll(".diary-mode");
-
-const notebookList = document.getElementById("notebook-list");
-const readerEmpty = document.getElementById("reader-empty");
-const readerBody = document.getElementById("reader-body");
-const notebookEntryList = document.getElementById("notebook-entry-list");
-const diaryReaderContent = document.getElementById("diary-reader-content");
-
-const weightMonthInput = document.getElementById("weight-month");
-const weightChart = document.getElementById("weight-chart");
+const expenseTableBody = document.getElementById("expense-table-body");
 const weightTableBody = document.getElementById("weight-table-body");
+const weightChart = document.getElementById("weight-chart");
+const diaryList = document.getElementById("diary-list");
+const emptyTemplate = document.getElementById("empty-template");
 
 init();
 
 async function init() {
-  setDefaultDate(dailyForm);
-  setDefaultDate(expenseForm);
-  setDefaultDate(weightForm);
-  weightMonthInput.value = ui.selectedWeightMonth;
+  setDefaultDate();
+  dashboardMonth.value = ui.selectedMonth;
 
   registerForm.addEventListener("submit", onRegisterSubmit);
   loginForm.addEventListener("submit", onLoginSubmit);
   logoutBtn.addEventListener("click", onLogout);
   goRegisterBtn.addEventListener("click", () => switchAuthMode("register"));
   goLoginBtn.addEventListener("click", () => switchAuthMode("login"));
-  aiPolishBtn.addEventListener("click", () => runAiTask("polish"));
-  aiSummaryBtn.addEventListener("click", () => runAiTask("summary"));
-  aiApplyBtn.addEventListener("click", applyAiTextToDiary);
 
-  dailyForm.addEventListener("submit", onDailySubmit);
-  expenseForm.addEventListener("submit", onExpenseSubmit);
-  weightForm.addEventListener("submit", onWeightSubmit);
-  weightMonthInput.addEventListener("change", onWeightMonthChange);
-
-  for (const btn of navButtons) {
-    btn.addEventListener("click", () => switchMainPage(btn.dataset.page));
-  }
-
-  for (const btn of diaryModeButtons) {
-    btn.addEventListener("click", () => switchDiaryMode(btn.dataset.diaryMode));
-  }
+  diaryForm.addEventListener("submit", onDiarySubmit);
+  dashboardMonth.addEventListener("change", () => {
+    ui.selectedMonth = dashboardMonth.value || currentMonthString();
+    renderDashboard();
+  });
 
   await restoreSession();
   switchAuthMode("login");
@@ -92,75 +59,521 @@ async function init() {
   renderAll();
 }
 
-async function runAiTask(task) {
-  const titleInput = dailyForm.querySelector('input[name="title"]');
-  const contentInput = dailyForm.querySelector('textarea[name="content"]');
+function emptyState() {
+  return { daily: [], expenses: [], weights: [] };
+}
 
-  const title = String(titleInput?.value || "").trim();
-  const content = String(contentInput?.value || "").trim();
+function setDefaultDate() {
+  const dateInput = diaryForm.querySelector('input[name="date"]');
+  if (!dateInput.value) {
+    dateInput.value = new Date().toISOString().slice(0, 10);
+  }
+}
 
-  if (!content) {
-    setAiOutput("请先在正文里写点内容，再用 AI。", true);
+async function onDiarySubmit(event) {
+  event.preventDefault();
+  if (!currentUser?.id) {
     return;
   }
 
-  setAiLoading(true);
-  aiApplyBtn.classList.add("hidden");
-  setAiOutput("AI 正在思考，请稍等...");
+  const formData = new FormData(diaryForm);
+  const date = String(formData.get("date") || "").trim();
+  const title = String(formData.get("title") || "").trim();
+  const content = String(formData.get("content") || "").trim();
 
+  if (!date || !content) {
+    setExtractMessage("请先填写日期和正文。", true);
+    return;
+  }
+
+  saveDiaryBtn.disabled = true;
+  setExtractMessage("正在分析你的日记，提取花费和体重...");
+
+  let extract = null;
+  try {
+    extract = await extractFromDiary(title, content);
+  } finally {
+    saveDiaryBtn.disabled = false;
+  }
+
+  if (!extract) {
+    setExtractMessage("提取失败，请稍后重试。", true);
+    return;
+  }
+
+  const diaryId = crypto.randomUUID();
+  const normalized = normalizeExtract(extract);
+
+  state.daily.unshift({
+    id: diaryId,
+    date,
+    title: title || fallbackTitle(content),
+    content,
+    summary: normalized.summary,
+    extracted: normalized,
+    createdAt: Date.now(),
+  });
+
+  for (const item of normalized.expenses) {
+    state.expenses.unshift({
+      id: crypto.randomUUID(),
+      date,
+      item: item.item,
+      amount: item.amount,
+      fromDiaryId: diaryId,
+      createdAt: Date.now(),
+    });
+  }
+
+  if (typeof normalized.weight_kg === "number" && normalized.weight_kg > 0) {
+    state.weights.unshift({
+      id: crypto.randomUUID(),
+      date,
+      weight: normalized.weight_kg,
+      fromDiaryId: diaryId,
+      createdAt: Date.now(),
+    });
+  }
+
+  ui.selectedMonth = date.slice(0, 7);
+  dashboardMonth.value = ui.selectedMonth;
+
+  diaryForm.reset();
+  setDefaultDate();
+
+  setExtractMessage(buildExtractMessage(normalized));
+  persistAndRender();
+}
+
+async function extractFromDiary(title, content) {
   try {
     const response = await fetch("/api/ai", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ task, title, content }),
+      body: JSON.stringify({ task: "extract", title, content }),
     });
 
     const data = await response.json().catch(() => ({}));
-    if (!response.ok) {
-      setAiOutput(data?.error || "AI 请求失败，请稍后再试。", true);
-      return;
+    if (response.ok && data?.extracted) {
+      return data.extracted;
     }
-
-    const text = String(data?.text || "").trim();
-    if (!text) {
-      setAiOutput("AI 没有返回内容，请重试。", true);
-      return;
-    }
-
-    setAiOutput(text);
-    aiApplyBtn.classList.remove("hidden");
   } catch {
-    setAiOutput("网络异常，请检查后再试。", true);
-  } finally {
-    setAiLoading(false);
+    // fall through to regex fallback
   }
+
+  return extractByRegex(content);
 }
 
-function applyAiTextToDiary() {
-  const contentInput = dailyForm.querySelector('textarea[name="content"]');
-  const text = String(aiOutput.textContent || "").trim();
-  if (!contentInput || !text || aiOutput.dataset.error === "1") {
+function extractByRegex(content) {
+  const expenses = [];
+  const seen = new Set();
+  const expenseRegex = /([^\n，。,；;:：]{0,12}?)(\d+(?:\.\d+)?)\s*(元|块|RMB|rmb)/g;
+
+  for (const match of content.matchAll(expenseRegex)) {
+    const rawItem = String(match[1] || "").replace(/[花费花了用了消费是：:\s]/g, "").trim();
+    const item = rawItem || "日记提取花费";
+    const amount = Number(match[2]);
+    const key = `${item}-${amount}`;
+
+    if (Number.isFinite(amount) && amount >= 0 && !seen.has(key)) {
+      expenses.push({ item, amount: Number(amount.toFixed(2)) });
+      seen.add(key);
+    }
+  }
+
+  let weightKg = null;
+  const weightMatch = content.match(/(\d{2,3}(?:\.\d+)?)\s*(kg|KG|公斤|斤)/);
+  if (weightMatch) {
+    let value = Number(weightMatch[1]);
+    const unit = weightMatch[2];
+    if (unit === "斤") {
+      value = value / 2;
+    }
+    if (value > 20 && value < 300) {
+      weightKg = Number(value.toFixed(1));
+    }
+  }
+
+  return {
+    summary: "本条使用本地规则提取。",
+    expenses,
+    weight_kg: weightKg,
+  };
+}
+
+function normalizeExtract(raw) {
+  const expenses = Array.isArray(raw?.expenses)
+    ? raw.expenses
+        .map((item) => ({
+          item: String(item?.item || "日记提取花费").trim() || "日记提取花费",
+          amount: Number(item?.amount),
+        }))
+        .filter((item) => Number.isFinite(item.amount) && item.amount >= 0)
+        .map((item) => ({ ...item, amount: Number(item.amount.toFixed(2)) }))
+    : [];
+
+  let weightKg = null;
+  const candidate = Number(raw?.weight_kg);
+  if (Number.isFinite(candidate) && candidate > 20 && candidate < 300) {
+    weightKg = Number(candidate.toFixed(1));
+  }
+
+  return {
+    summary: String(raw?.summary || "已自动提取。"),
+    expenses,
+    weight_kg: weightKg,
+  };
+}
+
+function buildExtractMessage(extract) {
+  const lines = [];
+  lines.push(`总结：${extract.summary || "无"}`);
+
+  if (extract.expenses.length > 0) {
+    const expenseText = extract.expenses.map((item) => `${item.item} ${item.amount.toFixed(2)}元`).join("，");
+    lines.push(`识别到花费：${expenseText}`);
+  } else {
+    lines.push("识别到花费：无");
+  }
+
+  if (typeof extract.weight_kg === "number") {
+    lines.push(`识别到体重：${extract.weight_kg.toFixed(1)}kg`);
+  } else {
+    lines.push("识别到体重：无");
+  }
+
+  return lines.join("\n");
+}
+
+function setExtractMessage(message, isError = false) {
+  extractResult.textContent = message;
+  extractResult.style.color = isError ? "#ff6b6b" : "#e7e9ea";
+}
+
+function persistAndRender() {
+  persistStateByUser();
+  renderAll();
+}
+
+function renderAll() {
+  renderStats();
+  renderDashboard();
+  renderDiaryList();
+}
+
+function renderStats() {
+  const totalExpense = state.expenses.reduce((sum, item) => sum + item.amount, 0);
+  const latestWeight = sortedByDateDesc(state.weights)[0]?.weight;
+
+  stats.innerHTML = "";
+  stats.append(
+    statCard("日记总数", `${state.daily.length} 条`),
+    statCard("累计花费", `¥ ${totalExpense.toFixed(2)}`),
+    statCard("最近体重", latestWeight ? `${latestWeight.toFixed(1)} kg` : "暂无")
+  );
+}
+
+function statCard(label, value) {
+  const item = document.createElement("article");
+  item.className = "stat";
+  item.innerHTML = `<p class="label">${label}</p><p class="value">${value}</p>`;
+  return item;
+}
+
+function renderDashboard() {
+  const month = ui.selectedMonth || currentMonthString();
+  const expenses = sortedByDateDesc(state.expenses.filter((item) => item.date.startsWith(month)));
+  const weights = sortedByDateAsc(state.weights.filter((item) => item.date.startsWith(month)));
+
+  renderExpenseTable(expenses);
+  renderWeightTable(weights);
+  renderWeightChart(weights, month);
+}
+
+function renderExpenseTable(items) {
+  expenseTableBody.innerHTML = "";
+
+  if (items.length === 0) {
+    const tr = document.createElement("tr");
+    tr.innerHTML = '<td colspan="3" class="empty">本月没有花费记录。</td>';
+    expenseTableBody.append(tr);
     return;
   }
-  contentInput.value = text;
-  setAiOutput("已把 AI 结果替换到正文。你可以再改一下再保存。");
-}
 
-function setAiOutput(message, isError = false) {
-  aiOutput.textContent = message;
-  aiOutput.dataset.error = isError ? "1" : "0";
-  if (isError) {
-    aiApplyBtn.classList.add("hidden");
+  for (const item of items) {
+    const tr = document.createElement("tr");
+    tr.innerHTML = `<td>${formatDate(item.date)}</td><td>${escapeHtml(item.item)}</td><td>${item.amount.toFixed(2)}</td>`;
+    expenseTableBody.append(tr);
   }
 }
 
-function setAiLoading(loading) {
-  aiPolishBtn.disabled = loading;
-  aiSummaryBtn.disabled = loading;
+function renderWeightTable(items) {
+  weightTableBody.innerHTML = "";
+
+  if (items.length === 0) {
+    const tr = document.createElement("tr");
+    tr.innerHTML = '<td colspan="2" class="empty">本月没有体重记录。</td>';
+    weightTableBody.append(tr);
+    return;
+  }
+
+  const list = [...items].sort((a, b) => (a.date > b.date ? -1 : 1));
+  for (const item of list) {
+    const tr = document.createElement("tr");
+    tr.innerHTML = `<td>${formatDate(item.date)}</td><td>${item.weight.toFixed(1)}</td>`;
+    weightTableBody.append(tr);
+  }
 }
 
-function emptyState() {
-  return { daily: [], expenses: [], weights: [] };
+function renderWeightChart(entries, month) {
+  weightChart.innerHTML = "";
+
+  if (entries.length === 0) {
+    const empty = document.createElement("div");
+    empty.className = "empty";
+    empty.textContent = `${formatMonthLabel(month)} 还没有体重数据。`;
+    weightChart.append(empty);
+    return;
+  }
+
+  const width = 760;
+  const height = 250;
+  const padding = { top: 20, right: 20, bottom: 34, left: 40 };
+
+  const svg = createSvg("svg", {
+    viewBox: `0 0 ${width} ${height}`,
+    width: "100%",
+    height: String(height),
+    role: "img",
+    "aria-label": `${formatMonthLabel(month)} 体重曲线图`,
+  });
+
+  const monthDays = daysInMonth(month);
+  const points = entries.map((item) => ({
+    day: Number(item.date.slice(8, 10)),
+    weight: item.weight,
+  }));
+
+  const minWeight = Math.min(...points.map((p) => p.weight));
+  const maxWeight = Math.max(...points.map((p) => p.weight));
+  const minY = minWeight - 0.5;
+  const maxY = maxWeight + 0.5;
+  const yRange = maxY - minY || 1;
+
+  for (let i = 0; i <= 4; i += 1) {
+    const y = padding.top + ((height - padding.top - padding.bottom) / 4) * i;
+    const value = maxY - (yRange / 4) * i;
+
+    svg.append(
+      createSvg("line", {
+        x1: String(padding.left),
+        x2: String(width - padding.right),
+        y1: String(y),
+        y2: String(y),
+        stroke: "#2f3336",
+        "stroke-width": "1",
+      })
+    );
+
+    const label = createSvg("text", {
+      x: "6",
+      y: String(y + 4),
+      fill: "#71767b",
+      "font-size": "11",
+    });
+    label.textContent = value.toFixed(1);
+    svg.append(label);
+  }
+
+  const pointsAttr = points
+    .map((p) => {
+      const x = mapValue(p.day, 1, monthDays, padding.left, width - padding.right);
+      const y = mapValue(p.weight, minY, maxY, height - padding.bottom, padding.top);
+      return `${x},${y}`;
+    })
+    .join(" ");
+
+  svg.append(
+    createSvg("polyline", {
+      points: pointsAttr,
+      fill: "none",
+      stroke: "#1d9bf0",
+      "stroke-width": "3",
+      "stroke-linecap": "round",
+      "stroke-linejoin": "round",
+    })
+  );
+
+  for (const p of points) {
+    const x = mapValue(p.day, 1, monthDays, padding.left, width - padding.right);
+    const y = mapValue(p.weight, minY, maxY, height - padding.bottom, padding.top);
+
+    svg.append(
+      createSvg("circle", {
+        cx: String(x),
+        cy: String(y),
+        r: "4",
+        fill: "#e7e9ea",
+      })
+    );
+  }
+
+  svg.append(
+    createSvg("line", {
+      x1: String(padding.left),
+      x2: String(width - padding.right),
+      y1: String(height - padding.bottom),
+      y2: String(height - padding.bottom),
+      stroke: "#2f3336",
+      "stroke-width": "1.5",
+    })
+  );
+
+  const dayMarks = [1, Math.ceil(monthDays / 2), monthDays];
+  for (const day of dayMarks) {
+    const x = mapValue(day, 1, monthDays, padding.left, width - padding.right);
+    const label = createSvg("text", {
+      x: String(x - 6),
+      y: String(height - 10),
+      fill: "#71767b",
+      "font-size": "11",
+    });
+    label.textContent = `${day}日`;
+    svg.append(label);
+  }
+
+  weightChart.append(svg);
+}
+
+function renderDiaryList() {
+  diaryList.innerHTML = "";
+  const list = sortedByDateDesc(state.daily);
+
+  if (list.length === 0) {
+    const clone = emptyTemplate.content.cloneNode(true);
+    diaryList.append(clone);
+    return;
+  }
+
+  for (const item of list) {
+    const li = document.createElement("li");
+    li.className = "entry";
+
+    const summary = item.summary ? `<p class="entry-summary">${escapeHtml(item.summary)}</p>` : "";
+
+    const expenseChips = Array.isArray(item.extracted?.expenses)
+      ? item.extracted.expenses.map((e) => `<span class="chip">${escapeHtml(e.item)} ${Number(e.amount).toFixed(2)}元</span>`).join("")
+      : "";
+    const weightChip = typeof item.extracted?.weight_kg === "number"
+      ? `<span class="chip">体重 ${item.extracted.weight_kg.toFixed(1)}kg</span>`
+      : "";
+
+    li.innerHTML = `
+      <div class="entry-top">
+        <div>
+          <strong>${escapeHtml(item.title || "无标题")}</strong>
+          <div class="entry-date">${formatDate(item.date)}</div>
+        </div>
+        <button type="button" class="delete-btn" data-delete-diary-id="${item.id}">删除</button>
+      </div>
+      <p>${escapeHtml(item.content.slice(0, 120))}${item.content.length > 120 ? "..." : ""}</p>
+      ${summary}
+      <div class="chip-row">${expenseChips}${weightChip}</div>
+    `;
+
+    diaryList.append(li);
+  }
+
+  for (const btn of diaryList.querySelectorAll("[data-delete-diary-id]")) {
+    btn.addEventListener("click", () => {
+      const id = btn.getAttribute("data-delete-diary-id");
+      deleteDiary(id);
+    });
+  }
+}
+
+function deleteDiary(diaryId) {
+  state.daily = state.daily.filter((item) => item.id !== diaryId);
+  state.expenses = state.expenses.filter((item) => item.fromDiaryId !== diaryId);
+  state.weights = state.weights.filter((item) => item.fromDiaryId !== diaryId);
+  persistAndRender();
+}
+
+function createSvg(tag, attrs) {
+  const element = document.createElementNS("http://www.w3.org/2000/svg", tag);
+  for (const key of Object.keys(attrs)) {
+    element.setAttribute(key, attrs[key]);
+  }
+  return element;
+}
+
+function mapValue(value, minValue, maxValue, minTarget, maxTarget) {
+  if (maxValue === minValue) {
+    return (minTarget + maxTarget) / 2;
+  }
+  const ratio = (value - minValue) / (maxValue - minValue);
+  return minTarget + ratio * (maxTarget - minTarget);
+}
+
+function daysInMonth(month) {
+  const year = Number(month.slice(0, 4));
+  const mon = Number(month.slice(5, 7));
+  return new Date(year, mon, 0).getDate();
+}
+
+function sortedByDateDesc(arr) {
+  return [...arr].sort((a, b) => {
+    if (a.date === b.date) {
+      return (b.createdAt || 0) - (a.createdAt || 0);
+    }
+    return a.date > b.date ? -1 : 1;
+  });
+}
+
+function sortedByDateAsc(arr) {
+  return [...arr].sort((a, b) => {
+    if (a.date === b.date) {
+      return (a.createdAt || 0) - (b.createdAt || 0);
+    }
+    return a.date > b.date ? 1 : -1;
+  });
+}
+
+function formatDate(dateString) {
+  const date = new Date(`${dateString}T00:00:00`);
+  if (Number.isNaN(date.getTime())) {
+    return dateString;
+  }
+  return date.toLocaleDateString("zh-CN", {
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+  });
+}
+
+function formatMonthLabel(monthString) {
+  const [year, month] = monthString.split("-");
+  if (!year || !month) {
+    return monthString;
+  }
+  return `${year}年${month}月`;
+}
+
+function fallbackTitle(content) {
+  return String(content || "无标题").slice(0, 12) || "无标题";
+}
+
+function currentMonthString() {
+  return new Date().toISOString().slice(0, 7);
+}
+
+function escapeHtml(raw) {
+  return String(raw)
+    .replaceAll("&", "&amp;")
+    .replaceAll("<", "&lt;")
+    .replaceAll(">", "&gt;")
+    .replaceAll('"', "&quot;")
+    .replaceAll("'", "&#39;");
 }
 
 async function onRegisterSubmit(event) {
@@ -303,559 +716,6 @@ function setAuthMessage(message, isError = false) {
   authMsg.classList.toggle("error", isError);
 }
 
-function switchMainPage(pageName) {
-  ui.selectedPage = pageName;
-  for (const btn of navButtons) {
-    btn.classList.toggle("active", btn.dataset.page === pageName);
-  }
-  for (const page of pages) {
-    page.classList.toggle("active", page.dataset.page === pageName);
-  }
-}
-
-function switchDiaryMode(mode) {
-  ui.diaryMode = mode;
-  for (const btn of diaryModeButtons) {
-    btn.classList.toggle("active", btn.dataset.diaryMode === mode);
-  }
-  for (const section of diaryModes) {
-    section.classList.toggle("active", section.dataset.diaryMode === mode);
-  }
-}
-
-function onWeightMonthChange() {
-  ui.selectedWeightMonth = weightMonthInput.value || currentMonthString();
-  renderWeightMonth();
-}
-
-function setDefaultDate(form) {
-  const input = form.querySelector('input[name="date"]');
-  if (!input.value) {
-    input.value = new Date().toISOString().slice(0, 10);
-  }
-}
-
-function onDailySubmit(event) {
-  event.preventDefault();
-  if (!currentUser?.id) {
-    return;
-  }
-
-  const formData = new FormData(dailyForm);
-  const date = String(formData.get("date") || "").trim();
-  const title = String(formData.get("title") || "").trim();
-  const content = String(formData.get("content") || "").trim();
-
-  if (!date || !title || !content) {
-    return;
-  }
-
-  state.daily.unshift({
-    id: crypto.randomUUID(),
-    date,
-    title,
-    content,
-    createdAt: Date.now(),
-  });
-
-  dailyForm.reset();
-  setDefaultDate(dailyForm);
-  persistAndRender();
-  switchDiaryMode("view");
-}
-
-function onExpenseSubmit(event) {
-  event.preventDefault();
-  if (!currentUser?.id) {
-    return;
-  }
-
-  const formData = new FormData(expenseForm);
-  const date = String(formData.get("date") || "").trim();
-  const item = String(formData.get("item") || "").trim();
-  const amount = Number(formData.get("amount"));
-
-  if (!date || !item || !Number.isFinite(amount) || amount < 0) {
-    return;
-  }
-
-  state.expenses.unshift({
-    id: crypto.randomUUID(),
-    date,
-    item,
-    amount,
-    createdAt: Date.now(),
-  });
-
-  expenseForm.reset();
-  setDefaultDate(expenseForm);
-  persistAndRender();
-}
-
-function onWeightSubmit(event) {
-  event.preventDefault();
-  if (!currentUser?.id) {
-    return;
-  }
-
-  const formData = new FormData(weightForm);
-  const date = String(formData.get("date") || "").trim();
-  const weight = Number(formData.get("weight"));
-
-  if (!date || !Number.isFinite(weight) || weight <= 0) {
-    return;
-  }
-
-  state.weights.unshift({
-    id: crypto.randomUUID(),
-    date,
-    weight,
-    createdAt: Date.now(),
-  });
-
-  ui.selectedWeightMonth = date.slice(0, 7);
-  weightMonthInput.value = ui.selectedWeightMonth;
-
-  weightForm.reset();
-  setDefaultDate(weightForm);
-  persistAndRender();
-}
-
-function persistAndRender() {
-  persistStateByUser();
-  renderAll();
-}
-
-function renderAll() {
-  renderStats();
-  renderExpenseList();
-  renderNotebookShelf();
-  renderNotebookEntries();
-  renderWeightMonth();
-}
-
-function renderStats() {
-  const totalExpense = state.expenses.reduce((sum, item) => sum + item.amount, 0);
-  const latestWeight = sortedByDateDesc(state.weights)[0]?.weight;
-  const dailyCount = state.daily.length;
-
-  stats.innerHTML = "";
-  stats.append(
-    statCard("日记总数", `${dailyCount} 条`),
-    statCard("总花费", `¥ ${totalExpense.toFixed(2)}`),
-    statCard("最近体重", latestWeight ? `${latestWeight.toFixed(1)} kg` : "暂无")
-  );
-}
-
-function statCard(label, value) {
-  const item = document.createElement("article");
-  item.className = "stat";
-  item.innerHTML = `<p class="label">${label}</p><p class="value">${value}</p>`;
-  return item;
-}
-
-function renderNotebookShelf() {
-  notebookList.innerHTML = "";
-
-  const grouped = groupDailyByMonth();
-  const months = Object.keys(grouped).sort((a, b) => (a > b ? -1 : 1));
-
-  if (months.length === 0) {
-    const clone = emptyTemplate.content.cloneNode(true);
-    notebookList.append(clone);
-    ui.selectedNotebookMonth = "";
-    ui.selectedDiaryId = "";
-    return;
-  }
-
-  if (!ui.selectedNotebookMonth || !grouped[ui.selectedNotebookMonth]) {
-    ui.selectedNotebookMonth = months[0];
-  }
-
-  for (const month of months) {
-    const li = document.createElement("li");
-    const btn = document.createElement("button");
-    btn.type = "button";
-    btn.className = "notebook-btn";
-    btn.classList.toggle("active", month === ui.selectedNotebookMonth);
-    btn.textContent = `${formatMonthLabel(month)} (${grouped[month].length} 篇)`;
-    btn.addEventListener("click", () => {
-      ui.selectedNotebookMonth = month;
-      ui.selectedDiaryId = "";
-      renderNotebookShelf();
-      renderNotebookEntries();
-    });
-    li.append(btn);
-    notebookList.append(li);
-  }
-}
-
-function renderNotebookEntries() {
-  notebookEntryList.innerHTML = "";
-  diaryReaderContent.innerHTML = "";
-
-  const grouped = groupDailyByMonth();
-  const monthEntries = grouped[ui.selectedNotebookMonth] || [];
-
-  if (monthEntries.length === 0) {
-    readerBody.classList.add("hidden");
-    readerEmpty.classList.remove("hidden");
-    readerEmpty.textContent = "先在左边选一本日记本。";
-    return;
-  }
-
-  const sortedEntries = sortedByDateDesc(monthEntries);
-
-  if (!ui.selectedDiaryId || !sortedEntries.find((item) => item.id === ui.selectedDiaryId)) {
-    ui.selectedDiaryId = sortedEntries[0].id;
-  }
-
-  for (const entry of sortedEntries) {
-    const li = document.createElement("li");
-    const btn = document.createElement("button");
-    btn.type = "button";
-    btn.className = "entry-item-btn";
-    btn.classList.toggle("active", entry.id === ui.selectedDiaryId);
-    btn.textContent = `${formatDate(entry.date)} - ${entry.title || fallbackTitle(entry.content)}`;
-    btn.addEventListener("click", () => {
-      ui.selectedDiaryId = entry.id;
-      renderNotebookEntries();
-    });
-    li.append(btn);
-    notebookEntryList.append(li);
-  }
-
-  const activeEntry = sortedEntries.find((item) => item.id === ui.selectedDiaryId);
-  if (!activeEntry) {
-    readerBody.classList.add("hidden");
-    readerEmpty.classList.remove("hidden");
-    readerEmpty.textContent = "没有找到这篇日记。";
-    return;
-  }
-
-  readerEmpty.classList.add("hidden");
-  readerBody.classList.remove("hidden");
-
-  diaryReaderContent.innerHTML = `
-    <h3 class="paper-title">${escapeHtml(activeEntry.title || fallbackTitle(activeEntry.content))}</h3>
-    <p class="paper-date">${formatDate(activeEntry.date)}</p>
-    <p class="paper-content">${escapeHtml(activeEntry.content)}</p>
-    <button type="button" class="delete-btn" id="delete-diary-btn">删除这篇日记</button>
-  `;
-
-  const deleteBtn = document.getElementById("delete-diary-btn");
-  deleteBtn.addEventListener("click", () => {
-    state.daily = state.daily.filter((entry) => entry.id !== activeEntry.id);
-    ui.selectedDiaryId = "";
-    persistAndRender();
-  });
-}
-
-function groupDailyByMonth() {
-  const result = {};
-  for (const entry of state.daily) {
-    const month = String(entry.date || "").slice(0, 7);
-    if (!month) {
-      continue;
-    }
-    if (!result[month]) {
-      result[month] = [];
-    }
-    result[month].push(entry);
-  }
-  return result;
-}
-
-function renderExpenseList() {
-  renderSimpleList({
-    listEl: expenseList,
-    items: sortedByDateDesc(state.expenses),
-    contentBuilder: (entry) =>
-      `<p>${escapeHtml(entry.item)}</p><p><strong>¥ ${entry.amount.toFixed(2)}</strong></p>`,
-    removeHandler: (id) => {
-      state.expenses = state.expenses.filter((entry) => entry.id !== id);
-      persistAndRender();
-    },
-  });
-}
-
-function renderSimpleList({ listEl, items, contentBuilder, removeHandler }) {
-  listEl.innerHTML = "";
-
-  if (items.length === 0) {
-    const clone = emptyTemplate.content.cloneNode(true);
-    listEl.append(clone);
-    return;
-  }
-
-  for (const entry of items) {
-    const li = document.createElement("li");
-    li.className = "entry";
-
-    const top = document.createElement("div");
-    top.className = "entry-top";
-
-    const date = document.createElement("span");
-    date.className = "entry-date";
-    date.textContent = formatDate(entry.date);
-
-    const del = document.createElement("button");
-    del.type = "button";
-    del.className = "delete-btn";
-    del.textContent = "删除";
-    del.addEventListener("click", () => removeHandler(entry.id));
-
-    top.append(date, del);
-    li.append(top);
-
-    const content = document.createElement("div");
-    content.innerHTML = contentBuilder(entry);
-    li.append(content);
-
-    listEl.append(li);
-  }
-}
-
-function renderWeightMonth() {
-  const month = ui.selectedWeightMonth || currentMonthString();
-  const monthEntries = sortedByDateAsc(
-    state.weights.filter((item) => String(item.date || "").startsWith(month))
-  );
-
-  renderWeightTable(monthEntries);
-  renderWeightChart(monthEntries, month);
-}
-
-function renderWeightTable(entries) {
-  weightTableBody.innerHTML = "";
-
-  if (entries.length === 0) {
-    const tr = document.createElement("tr");
-    tr.innerHTML = '<td colspan="3" class="empty">这个月还没有体重记录。</td>';
-    weightTableBody.append(tr);
-    return;
-  }
-
-  const displayEntries = [...entries].sort((a, b) => (a.date > b.date ? -1 : 1));
-
-  for (const entry of displayEntries) {
-    const tr = document.createElement("tr");
-
-    const dateTd = document.createElement("td");
-    dateTd.textContent = formatDate(entry.date);
-
-    const weightTd = document.createElement("td");
-    weightTd.textContent = entry.weight.toFixed(1);
-
-    const actionTd = document.createElement("td");
-    const del = document.createElement("button");
-    del.type = "button";
-    del.className = "delete-btn";
-    del.textContent = "删除";
-    del.addEventListener("click", () => {
-      state.weights = state.weights.filter((item) => item.id !== entry.id);
-      persistAndRender();
-    });
-    actionTd.append(del);
-
-    tr.append(dateTd, weightTd, actionTd);
-    weightTableBody.append(tr);
-  }
-}
-
-function renderWeightChart(entries, month) {
-  weightChart.innerHTML = "";
-
-  if (entries.length === 0) {
-    const empty = document.createElement("div");
-    empty.className = "empty";
-    empty.textContent = `${formatMonthLabel(month)} 还没有体重数据。`;
-    weightChart.append(empty);
-    return;
-  }
-
-  const width = 760;
-  const height = 260;
-  const padding = { top: 20, right: 20, bottom: 34, left: 40 };
-
-  const svg = createSvg("svg", {
-    viewBox: `0 0 ${width} ${height}`,
-    width: "100%",
-    height: String(height),
-    role: "img",
-    "aria-label": `${formatMonthLabel(month)} 体重曲线图`,
-  });
-
-  const monthDays = daysInMonth(month);
-  const points = entries.map((item) => ({
-    day: Number(item.date.slice(8, 10)),
-    weight: item.weight,
-  }));
-
-  const minWeight = Math.min(...points.map((p) => p.weight));
-  const maxWeight = Math.max(...points.map((p) => p.weight));
-  const minY = minWeight - 0.5;
-  const maxY = maxWeight + 0.5;
-  const yRange = maxY - minY || 1;
-
-  for (let i = 0; i <= 4; i += 1) {
-    const y = padding.top + ((height - padding.top - padding.bottom) / 4) * i;
-    const value = maxY - (yRange / 4) * i;
-
-    const line = createSvg("line", {
-      x1: String(padding.left),
-      x2: String(width - padding.right),
-      y1: String(y),
-      y2: String(y),
-      stroke: "#2f3336",
-      "stroke-width": "1",
-    });
-
-    const label = createSvg("text", {
-      x: "6",
-      y: String(y + 4),
-      fill: "#71767b",
-      "font-size": "11",
-    });
-    label.textContent = value.toFixed(1);
-
-    svg.append(line, label);
-  }
-
-  const pointsAttr = points
-    .map((p) => {
-      const x = mapValue(p.day, 1, monthDays, padding.left, width - padding.right);
-      const y = mapValue(p.weight, minY, maxY, height - padding.bottom, padding.top);
-      return `${x},${y}`;
-    })
-    .join(" ");
-
-  const polyline = createSvg("polyline", {
-    points: pointsAttr,
-    fill: "none",
-    stroke: "#1d9bf0",
-    "stroke-width": "3",
-    "stroke-linecap": "round",
-    "stroke-linejoin": "round",
-  });
-  svg.append(polyline);
-
-  for (const p of points) {
-    const x = mapValue(p.day, 1, monthDays, padding.left, width - padding.right);
-    const y = mapValue(p.weight, minY, maxY, height - padding.bottom, padding.top);
-
-    const dot = createSvg("circle", {
-      cx: String(x),
-      cy: String(y),
-      r: "4",
-      fill: "#e7e9ea",
-    });
-    svg.append(dot);
-  }
-
-  const axis = createSvg("line", {
-    x1: String(padding.left),
-    x2: String(width - padding.right),
-    y1: String(height - padding.bottom),
-    y2: String(height - padding.bottom),
-    stroke: "#2f3336",
-    "stroke-width": "1.5",
-  });
-  svg.append(axis);
-
-  const dayMarks = [1, Math.ceil(monthDays / 2), monthDays];
-  for (const day of dayMarks) {
-    const x = mapValue(day, 1, monthDays, padding.left, width - padding.right);
-    const label = createSvg("text", {
-      x: String(x - 6),
-      y: String(height - 10),
-      fill: "#71767b",
-      "font-size": "11",
-    });
-    label.textContent = `${day}日`;
-    svg.append(label);
-  }
-
-  weightChart.append(svg);
-}
-
-function createSvg(tag, attrs) {
-  const element = document.createElementNS("http://www.w3.org/2000/svg", tag);
-  for (const key of Object.keys(attrs)) {
-    element.setAttribute(key, attrs[key]);
-  }
-  return element;
-}
-
-function mapValue(value, minValue, maxValue, minTarget, maxTarget) {
-  if (maxValue === minValue) {
-    return (minTarget + maxTarget) / 2;
-  }
-  const ratio = (value - minValue) / (maxValue - minValue);
-  return minTarget + ratio * (maxTarget - minTarget);
-}
-
-function daysInMonth(month) {
-  const year = Number(month.slice(0, 4));
-  const mon = Number(month.slice(5, 7));
-  return new Date(year, mon, 0).getDate();
-}
-
-function sortedByDateDesc(arr) {
-  return [...arr].sort((a, b) => {
-    if (a.date === b.date) {
-      return (b.createdAt || 0) - (a.createdAt || 0);
-    }
-    return a.date > b.date ? -1 : 1;
-  });
-}
-
-function sortedByDateAsc(arr) {
-  return [...arr].sort((a, b) => {
-    if (a.date === b.date) {
-      return (a.createdAt || 0) - (b.createdAt || 0);
-    }
-    return a.date > b.date ? 1 : -1;
-  });
-}
-
-function formatDate(dateString) {
-  const date = new Date(`${dateString}T00:00:00`);
-  if (Number.isNaN(date.getTime())) {
-    return dateString;
-  }
-  return date.toLocaleDateString("zh-CN", {
-    year: "numeric",
-    month: "2-digit",
-    day: "2-digit",
-  });
-}
-
-function formatMonthLabel(monthString) {
-  const [year, month] = monthString.split("-");
-  if (!year || !month) {
-    return monthString;
-  }
-  return `${year}年${month}月`;
-}
-
-function fallbackTitle(content) {
-  return String(content || "无标题").slice(0, 12) || "无标题";
-}
-
-function currentMonthString() {
-  return new Date().toISOString().slice(0, 7);
-}
-
-function escapeHtml(raw) {
-  return String(raw)
-    .replaceAll("&", "&amp;")
-    .replaceAll("<", "&lt;")
-    .replaceAll(">", "&gt;")
-    .replaceAll('"', "&quot;")
-    .replaceAll("'", "&#39;");
-}
-
 function getUserStorageKey(userId) {
   return `${STORAGE_KEY_PREFIX}${userId}`;
 }
@@ -872,15 +732,8 @@ function loadStateByUser(userId) {
     }
 
     const parsed = JSON.parse(raw);
-    const daily = Array.isArray(parsed.daily)
-      ? parsed.daily.map((item) => ({
-          ...item,
-          title: item.title || fallbackTitle(item.content),
-        }))
-      : [];
-
     return {
-      daily,
+      daily: Array.isArray(parsed.daily) ? parsed.daily : [],
       expenses: Array.isArray(parsed.expenses) ? parsed.expenses : [],
       weights: Array.isArray(parsed.weights) ? parsed.weights : [],
     };
