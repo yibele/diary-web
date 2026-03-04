@@ -4,9 +4,16 @@
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>智能日记记录</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link
+      href="https://fonts.googleapis.com/css2?family=Outfit:wght@400;500;600;700;800&family=Noto+Sans+SC:wght@400;500;700;800&display=swap"
+      rel="stylesheet"
+    />
     <link rel="stylesheet" href="styles.css" />
   </head>
   <body>
+    <div class="bg-mesh"></div>
     <main class="app">
       <header class="hero">
         <p class="tag">Smart Diary</p>
@@ -68,7 +75,7 @@
       <div id="app-content" class="hidden">
         <section class="stats" id="stats"></section>
 
-        <section class="card">
+        <section class="card compose-card">
           <div class="section-head">
             <h2>写今天的日记</h2>
             <p>提交后自动提取花费和体重并保存。</p>
@@ -91,7 +98,7 @@
           <div id="extract-result" class="result-box">还没有提取结果。</div>
         </section>
 
-        <section class="card">
+        <section class="card dashboard-card">
           <div class="section-head">
             <h2>数据看板</h2>
             <p>按月查看花费和体重变化。</p>
@@ -138,7 +145,7 @@
           </div>
         </section>
 
-        <section class="card">
+        <section class="card history-card">
           <div class="section-head">
             <h2>日记记录</h2>
             <p>每条日记都附带自动提取结果。</p>
