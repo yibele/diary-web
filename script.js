@@ -27,6 +27,10 @@ const goRegisterBtn = document.getElementById("go-register-btn");
 const goLoginBtn = document.getElementById("go-login-btn");
 const loginPanel = document.getElementById("auth-login-panel");
 const registerPanel = document.getElementById("auth-register-panel");
+const aiPolishBtn = document.getElementById("ai-polish-btn");
+const aiSummaryBtn = document.getElementById("ai-summary-btn");
+const aiApplyBtn = document.getElementById("ai-apply-btn");
+const aiOutput = document.getElementById("ai-output");
 
 const dailyForm = document.getElementById("daily-form");
 const expenseForm = document.getElementById("expense-form");
@@ -65,6 +69,9 @@ async function init() {
   logoutBtn.addEventListener("click", onLogout);
   goRegisterBtn.addEventListener("click", () => switchAuthMode("register"));
   goLoginBtn.addEventListener("click", () => switchAuthMode("login"));
+  aiPolishBtn.addEventListener("click", () => runAiTask("polish"));
+  aiSummaryBtn.addEventListener("click", () => runAiTask("summary"));
+  aiApplyBtn.addEventListener("click", applyAiTextToDiary);
 
   dailyForm.addEventListener("submit", onDailySubmit);
   expenseForm.addEventListener("submit", onExpenseSubmit);
@@ -83,6 +90,73 @@ async function init() {
   switchAuthMode("login");
   renderAppVisibility();
   renderAll();
+}
+
+async function runAiTask(task) {
+  const titleInput = dailyForm.querySelector('input[name="title"]');
+  const contentInput = dailyForm.querySelector('textarea[name="content"]');
+
+  const title = String(titleInput?.value || "").trim();
+  const content = String(contentInput?.value || "").trim();
+
+  if (!content) {
+    setAiOutput("请先在正文里写点内容，再用 AI。", true);
+    return;
+  }
+
+  setAiLoading(true);
+  aiApplyBtn.classList.add("hidden");
+  setAiOutput("AI 正在思考，请稍等...");
+
+  try {
+    const response = await fetch("/api/ai", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ task, title, content }),
+    });
+
+    const data = await response.json().catch(() => ({}));
+    if (!response.ok) {
+      setAiOutput(data?.error || "AI 请求失败，请稍后再试。", true);
+      return;
+    }
+
+    const text = String(data?.text || "").trim();
+    if (!text) {
+      setAiOutput("AI 没有返回内容，请重试。", true);
+      return;
+    }
+
+    setAiOutput(text);
+    aiApplyBtn.classList.remove("hidden");
+  } catch {
+    setAiOutput("网络异常，请检查后再试。", true);
+  } finally {
+    setAiLoading(false);
+  }
+}
+
+function applyAiTextToDiary() {
+  const contentInput = dailyForm.querySelector('textarea[name="content"]');
+  const text = String(aiOutput.textContent || "").trim();
+  if (!contentInput || !text || aiOutput.dataset.error === "1") {
+    return;
+  }
+  contentInput.value = text;
+  setAiOutput("已把 AI 结果替换到正文。你可以再改一下再保存。");
+}
+
+function setAiOutput(message, isError = false) {
+  aiOutput.textContent = message;
+  aiOutput.dataset.error = isError ? "1" : "0";
+  if (isError) {
+    aiApplyBtn.classList.add("hidden");
+  }
+}
+
+function setAiLoading(loading) {
+  aiPolishBtn.disabled = loading;
+  aiSummaryBtn.disabled = loading;
 }
 
 function emptyState() {

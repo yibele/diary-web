@@ -448,6 +448,28 @@ textarea::placeholder {
   margin: 14px 0;
 }
 
+.ai-box {
+  margin-top: 12px;
+}
+
+.ai-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 8px;
+}
+
+.ai-output {
+  margin-top: 10px;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  padding: 12px;
+  line-height: 1.7;
+  color: var(--text);
+  white-space: pre-wrap;
+  min-height: 88px;
+}
+
 .weight-layout {
   display: grid;
   grid-template-columns: 1fr;

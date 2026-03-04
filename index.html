@@ -111,6 +111,17 @@
                 </label>
                 <button type="submit">保存日记</button>
               </form>
+
+              <section class="card-inset ai-box">
+                <h3 class="panel-title">AI 助手</h3>
+                <p class="panel-sub">可以帮你润色和总结当前这篇日记。</p>
+                <div class="ai-actions">
+                  <button type="button" id="ai-polish-btn" class="entry-btn">AI 润色</button>
+                  <button type="button" id="ai-summary-btn" class="entry-btn">AI 总结</button>
+                  <button type="button" id="ai-apply-btn" class="nav-btn hidden">替换正文</button>
+                </div>
+                <div id="ai-output" class="ai-output">先写一点内容，再点上面的 AI 按钮。</div>
+              </section>
             </section>
 
             <section class="diary-mode" data-diary-mode="view">
