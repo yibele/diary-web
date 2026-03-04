@@ -13,17 +13,32 @@
     <link rel="stylesheet" href="styles.css" />
   </head>
   <body>
-    <div class="bg-mesh"></div>
     <main class="app">
+      <div class="top-strip">
+        <p>Project Dashboard</p>
+        <span>/</span>
+        <p class="active">智能日记控制台</p>
+      </div>
+
       <header class="hero">
-        <p class="tag">Smart Diary</p>
-        <h1>写一段日记，自动记录花费和体重</h1>
-        <p class="desc">你只要写内容，系统会自动提取并记账、记体重，再生成图表。</p>
+        <div>
+          <h1>智能日记控制台</h1>
+          <p class="desc">写日记后自动提取花费和体重，并在下方查看统计和明细。</p>
+        </div>
+        <div class="hero-actions">
+          <button type="button" class="ghost-btn">查看历史</button>
+          <button type="button">新建日记</button>
+        </div>
       </header>
+
+      <div class="page-tabs">
+        <button type="button" class="tab-btn active">项目空间</button>
+        <button type="button" class="tab-btn">共享空间</button>
+      </div>
 
       <section class="auth-wrap" id="auth-card">
         <section class="auth-x-card">
-          <div class="x-logo" aria-hidden="true">X</div>
+          <div class="x-logo" aria-hidden="true">D</div>
 
           <section class="auth-panel active" id="auth-login-panel">
             <h2 class="auth-title">登录到你的账号</h2>
